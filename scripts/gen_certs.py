@@ -52,7 +52,7 @@ def _now() -> dt.datetime:
 
 def _create_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     key = _new_key()
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Veronis Local CA")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Varonis Local CA")])
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)

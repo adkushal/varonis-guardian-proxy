@@ -25,7 +25,7 @@ DEMO_PROMPTS: dict[str, str] = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="OpenAI chat client via Veronis TLS proxy")
+    p = argparse.ArgumentParser(description="OpenAI chat client via Varonis TLS proxy")
     p.add_argument(
         "--prompt",
         default=None,
