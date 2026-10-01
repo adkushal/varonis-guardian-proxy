@@ -1,0 +1,102 @@
+services:
+  guardian:
+    build:
+      context: ./guardian
+    environment:
+      GUARDIAN_MODE: ${GUARDIAN_MODE:-mock}
+      GUARDIAN_MODEL: ${GUARDIAN_MODEL:-ibm-granite/granite-guardian-4.1-8b}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000/v1}
+    ports:
+      # Unauthenticated judge API: reachable from this machine only.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      vllm:
+        condition: service_healthy
+        required: false
+
+  mitm:
+    build:
+      context: ./mitm
+    environment:
+      GUARDIAN_URL: http://guardian:8000
+      GUARDIAN_CRITERIA: ${GUARDIAN_CRITERIA:-harm,profanity}
+      GUARDIAN_FAIL_CLOSED: ${GUARDIAN_FAIL_CLOSED:-1}
+    volumes:
+      - ./certs/mitm.pem:/certs/mitm.pem:ro
+    depends_on:
+      guardian:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: ./nginx
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./certs/server.crt:/etc/nginx/certs/server.crt:ro
+      - ./certs/server.key:/etc/nginx/certs/server.key:ro
+      - ./certs/ca.crt:/etc/nginx/certs/ca.crt:ro
+    depends_on:
+      - mitm
+
+  client:
+    build:
+      context: ./client
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      PROXY_BASE_URL: https://nginx:8443
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+    depends_on:
+      - nginx
+    profiles:
+      - client
+
+  # Real Granite Guardian via vLLM (NVIDIA GPU required).
+  # Usage: set GUARDIAN_MODE=vllm in .env, then: docker compose --profile gpu up --build
+  vllm:
+    image: vllm/vllm-openai:v0.11.0
+    profiles:
+      - gpu
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command:
+      - --model
+      - ${GUARDIAN_MODEL:-ibm-granite/granite-guardian-4.1-8b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - "8192"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 80
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "127.0.0.1:8001:8000"
+
+volumes:
+  hf_cache:
+
+networks:
+  default:
+    name: veronis_net
